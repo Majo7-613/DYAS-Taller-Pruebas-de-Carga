@@ -27,3 +27,6 @@ perf/lab/results/
 perf/lab/pool/
 perf/lab/deck/out/
 __pycache__/
+
+# Binario de k6 descargado localmente (no se versiona la herramienta).
+.tools/
