@@ -78,6 +78,13 @@
       <!-- ¡OJO! quita <scope>test</scope> si quieres usar H2 al arrancar la app -->
     </dependency>
 
+    <!-- Pool de conexiones JDBC (ver README, seccion "Observabilidad": sin
+         esto RegistryRepository abria una conexion nueva por operacion). -->
+    <dependency>
+      <groupId>com.zaxxer</groupId>
+      <artifactId>HikariCP</artifactId>
+    </dependency>
+
     <dependency>
       <groupId>org.projectlombok</groupId>
       <artifactId>lombok</artifactId>

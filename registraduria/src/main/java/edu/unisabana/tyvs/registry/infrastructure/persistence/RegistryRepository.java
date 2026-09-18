@@ -1,26 +1,33 @@
 package edu.unisabana.tyvs.registry.infrastructure.persistence;
 
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
 import edu.unisabana.tyvs.registry.application.port.out.RegistryRepositoryPort;
 import java.sql.*;
 import java.util.Optional;
+import javax.sql.DataSource;
 
 public class RegistryRepository implements RegistryRepositoryPort {
-    private final String jdbcUrl;
-    private final String username;
-    private final String password;
+    private final DataSource dataSource;
 
     public RegistryRepository(String jdbcUrl) {
         this(jdbcUrl, "", "");
     }
 
     public RegistryRepository(String jdbcUrl, String username, String password) {
-        this.jdbcUrl = jdbcUrl;
-        this.username = username;
-        this.password = password;
+        // Pool de conexiones (HikariCP) en lugar de abrir una conexion nueva
+        // por operacion con DriverManager. Ver README, seccion Observabilidad.
+        HikariConfig config = new HikariConfig();
+        config.setJdbcUrl(jdbcUrl);
+        config.setUsername(username);
+        config.setPassword(password);
+        config.setMaximumPoolSize(20);
+        config.setMinimumIdle(5);
+        this.dataSource = new HikariDataSource(config);
     }
 
     private Connection getConnection() throws SQLException {
-        return DriverManager.getConnection(jdbcUrl, username, password);
+        return dataSource.getConnection();
     }
 
     @Override
