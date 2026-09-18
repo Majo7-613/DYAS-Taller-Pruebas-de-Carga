@@ -86,6 +86,22 @@ jobs:
       # de error pasa del 1%, k6 termina con código distinto de 0 y el paso
       # falla. No hace falta lógica adicional.
 
+      # Escenarios largos: solo on-demand (workflow_dispatch), nunca en un PR.
+      # 'load' dura ~14 min y 'stress' ~10 min; bloquearían la revisión.
+      - name: Carga (on-demand)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          k6 run perf/scripts/register_person_k6.js \
+            --env BASE_URL=http://localhost:8080 \
+            --env SCENARIO=load
+
+      - name: Estrés (on-demand)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          k6 run perf/scripts/register_person_k6.js \
+            --env BASE_URL=http://localhost:8080 \
+            --env SCENARIO=stress
+
       - name: Publicar artefactos
         if: always()
         uses: actions/upload-artifact@v4
