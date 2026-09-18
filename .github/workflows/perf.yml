@@ -1,0 +1,97 @@
+# Flujo de Integración Continua para las pruebas de carga.
+#
+# ESTE ARCHIVO NO SE EJECUTA DESDE perf/ci/.
+# GitHub Actions solo lee los workflows de .github/workflows/. Cópielo así:
+#
+#     mkdir -p .github/workflows
+#     cp perf/ci/github-actions.yml .github/workflows/perf.yml
+#
+# Se deja aquí como plantilla para que quede versionada junto al resto del
+# material de rendimiento.
+
+name: perf-tests
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  k6-perf:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      # El workflow levanta el servicio EN EL PROPIO RUNNER.
+      # Sin este paso no habría nada que cargar: es el error más común al
+      # llevar pruebas de rendimiento a CI.
+      - name: Empaquetar el servicio
+        run: mvn -B -DskipTests clean package
+        working-directory: registraduria
+
+      - name: Levantar el servicio en segundo plano
+        run: |
+          nohup java -jar target/registraduria-1.0-SNAPSHOT.jar > /tmp/app.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:8080/actuator/health > /dev/null; then
+              echo "Servicio arriba"; exit 0
+            fi
+            sleep 2
+          done
+          echo "El servicio no arrancó a tiempo"; cat /tmp/app.log; exit 1
+        working-directory: registraduria
+
+      - name: Instalar k6
+        run: |
+          sudo gpg --no-default-keyring \
+            --keyring /usr/share/keyrings/k6-archive-keyring.gpg \
+            --keyserver hkp://keyserver.ubuntu.com:80 \
+            --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" \
+            | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install -y k6
+
+      - name: Preparar carpeta de resultados
+        run: mkdir -p perf/results
+
+      # En un pull request solo se corre el escenario corto: 'load' dura casi
+      # 15 minutos y bloquearía la revisión. Los escenarios largos van en
+      # workflow_dispatch o en una ejecución nocturna.
+      - name: Baseline de rendimiento
+        run: |
+          k6 run perf/scripts/register_person_k6.js \
+            --env BASE_URL=http://localhost:8080 \
+            --env SCENARIO=baseline \
+            --duration 60s --vus 20
+
+      # Segundo gate: verifica el RESULTADO DE NEGOCIO, no solo la latencia.
+      # Un servicio que responde rápido pero mal sigue estando roto.
+      - name: Verificación de resultado de negocio
+        run: |
+          k6 run perf/scripts/register_voter_k6.js \
+            --env BASE_URL=http://localhost:8080 \
+            --env SCENARIO=baseline \
+            --duration 60s --vus 20
+
+      # Los thresholds del script son el gate: si p95 supera el SLO o la tasa
+      # de error pasa del 1%, k6 termina con código distinto de 0 y el paso
+      # falla. No hace falta lógica adicional.
+
+      - name: Publicar artefactos
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-results
+          # Solo los resúmenes. NO se sube el volcado de -o json=, que para
+          # una corrida de segundos puede pesar cientos de megabytes.
+          path: perf/results/summary-*.json
+          if-no-files-found: warn
